@@ -1,0 +1,3 @@
+[workspace]
+members = ["chain", "cli"]
+resolver = "2"
