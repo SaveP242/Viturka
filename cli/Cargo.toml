@@ -1,0 +1,13 @@
+[package]
+name = "viturka-cli"
+version = "0.1.0"
+edition = "2021"
+description = "CLI for interacting with the Viturka blockchain"
+
+[dependencies]
+viturka-chain = { path = "../chain" }
+clap = { version = "4", features = ["derive"] }
+tracing-subscriber = "0.3"
+serde_json = "1"
+hex = "0.4"
+rand = "0.8"
