@@ -1,0 +1,109 @@
+C:\Users\psave\Viturka Chain\poc\vot_sgdstep_demo.py:224: DeprecationWarning: You are using the legacy TorchScript-based ONNX export. Starting in PyTorch 2.9, the new torch.export-based ONNX exporter has become the default. Learn more about the new export logic: https://docs.pytorch.org/docs/stable/onnx_export.html. For exporting control flow: https://pytorch.org/tutorials/beginner/onnx/export_control_flow_model_to_onnx_tutorial.html
+  torch.onnx.export(
+[tensor] decomposition error: integer -689277644396783445231051735040000 is too large to be represented by base 16384 and n 2
+forward pass failed: "failed to forward: [halo2] General synthesis error"
+[tensor] decomposition error: integer -705820307862306247916596976680960000 is too large to be represented by base 16384 and n 2
+forward pass failed: "failed to forward: [halo2] General synthesis error"
+[tensor] decomposition error: integer 33720021191829463957706886122542465024 is too large to be represented by base 16384 and n 2
+forward pass failed: "failed to forward: [halo2] General synthesis error"
+[tensor] decomposition error: integer -41307028356926266678831842313895936 is too large to be represented by base 16384 and n 2
+forward pass failed: "failed to forward: [halo2] General synthesis error"
+[tensor] decomposition error: integer -8521028246421111914226823747503915008 is too large to be represented by base 16384 and n 2
+forward pass failed: "failed to forward: [halo2] General synthesis error"
+[tensor] decomposition error: integer 20010175902715977379505109941092352 is too large to be represented by base 16384 and n 2
+forward pass failed: "failed to forward: [halo2] General synthesis error"
+
+
+ <------------- Numerical Fidelity Report (input_scale: 11, param_scale: 11, scale_input_multiplier: 1) ------------->
+
++-----------------+---------------+--------------+---------------+----------------+------------------+---------------+------------------+--------------------+--------------------+------------------------+
+| mean_error      | median_error  | max_error    | min_error     | mean_abs_error | median_abs_error | max_abs_error | min_abs_error    | mean_squared_error | mean_percent_error | mean_abs_percent_error |
++-----------------+---------------+--------------+---------------+----------------+------------------+---------------+------------------+--------------------+--------------------+------------------------+
+| -0.000004724916 | 0.00012224913 | 0.0009421706 | -0.0007780194 | 0.00015672817  | 0.00012224913    | 0.0009421706  | 0.00000017881393 | 0.000000037918966  | -0.0008132943      | 0.003257163            |
++-----------------+---------------+--------------+---------------+----------------+------------------+---------------+------------------+--------------------+--------------------+------------------------+
+
+
+removing SRS file at C:\Users\psave\Viturka Chain\poc\vot_artifacts\kzg.srs
+
+############################################################
+#  VoT (Verification of Training) SGDStep PoC
+#  Proving a single SGD step in zero-knowledge
+############################################################
+
+============================================================
+STEP 1: Build SGDStep & verify backward pass
+============================================================
+  Parameters: 138
+  x = ['-0.1115', '0.1204', '-0.3696', '-0.2404', '-1.1969']
+  y = ['0.2093', '-0.9724']
+  max  |autograd - manual| = 0.00e+00
+  mean |autograd - manual| = 0.00e+00
+  PASS: manual backward matches autograd
+
+============================================================
+STEP 2: Export SGDStep to ONNX
+============================================================
+  Nodes: 98
+  Ops: ['Add', 'Cast', 'Concat', 'Constant', 'Gather', 'Greater', 'MatMul', 'Mul', 'Relu', 'Reshape', 'Sigmoid', 'Slice', 'Squeeze', 'Sub', 'Transpose', 'Unsqueeze']
+  Size: 7.92 KB
+  Inputs: ['weights', 'x', 'y']
+  Outputs: ['new_weights']
+  Saved input.json (1 sample)
+  Saved calibration.json (21 samples)
+
+============================================================
+STEP 3: ezkl Settings & Calibration
+============================================================
+  Initial logrows: 17
+  Initial lookups: [{'Sigmoid': {'scale': 128.0}}]
+  Calibrating (target=resources, safety_margin=2)...
+  check_mode: UNSAFE -> SAFE
+  scales: input=11, param=11
+  decomp: 16384^2
+  logrows       = 15 (2^15 = 32768 rows)
+  num_rows      = 10222
+  total_assign  = 20444
+  lookups       = [{'Sigmoid': {'scale': 2048.0}}]
+  range_checks  = [[0, 16383], [-1, 1]]
+  lookup_range  = [-14950, 15768]
+  utilization   = 10222/32768 = 31.2%
+  LUT size      = 30718 entries (min logrows=15)
+
+============================================================
+STEP 4: Compile -> SRS -> Keys
+============================================================
+  Compiled (0.02s)
+  SRS: LOCAL (gen_srs) (3.43s)
+  pk.key: 156.07 MB
+  vk.key: 73.51 KB
+  Setup: 2.86s
+
+============================================================
+STEP 5: Witness -> Prove -> Verify
+============================================================
+  Witness generated (0.08s, 43278 bytes)
+    input[0]: 138 values
+    input[1]: 5 values
+    input[2]: 2 values
+    output[0]: 138 values (first 5: ['0.341796875', '0.09033203125', '0.388671875', '-0.06298828125', '-0.2060546875'])
+  Proving...
+  Proving time: 3.06s
+  Proof size: 61.88 KB
+  RSS peak: 222.30 MB
+  RSS delta: -0.40 MB
+  ezkl.verify() = True (0.07s)
+
+============================================================
+STEP 6: Tamper Tests
+============================================================
+  proof_tamper: PASS
+  instance_tamper: PASS
+
+============================================================
+STEP 7: Report
+============================================================
+  Report: C:\Users\psave\Viturka Chain\poc\..\benchmarks\vot_sgdstep_run.md
+  VoT verified: True
+
+Total pipeline time: 17.70s
+Done.

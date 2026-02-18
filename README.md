@@ -1,195 +1,158 @@
 # Viturka Protocol
 
-A credibility-based blockchain for decentralized federated learning, where mining is replaced by validated AI model training.
+A ZKML-native blockchain for decentralized federated learning, where mining is replaced by cryptographically verified AI model training.
 
-Viturka uses **Proof of Credibility (PoC)** — a consensus mechanism where block production is determined by accumulated reputation from validated AI contributions, not hash power or financial stake. Validators generate zero-knowledge proofs attesting to correct training execution via **ZKML** (Zero-Knowledge Machine Learning), enabling cryptographic verification of model training on-chain.
+Viturka uses **Proof of Credibility (PoC)** — a consensus mechanism where block production is determined by accumulated reputation from validated AI contributions. Validators generate zero-knowledge proofs attesting to correct training execution via **ZKML** (Zero-Knowledge Machine Learning), enabling on-chain verification of both inference and training.
 
 > **Author:** Pratik Save | **Version:** 3.0 — ZKML-Native Architecture | **February 2026**
 
-## Architecture
+## What's Built
+
+### Phase 1 — Blockchain Core (Rust)
+
+A complete in-memory blockchain with Proof of Credibility consensus, 77 tests passing.
+
+- **Transaction types:** VIT transfers (Tx), encrypted data contributions (DTx), key reveals (RTx), ZKML validation proofs (PTx)
+- **DDTXO lifecycle:** PENDING → REVEALED → VALIDATING → APPROVED/REJECTED with timing windows and consensus thresholds
+- **Consensus:** Top-10 validator selection by credibility score, progressive decay with staking reduction, 10-block cooldown
+- **Proof pipeline:** Pluggable `ProofSystem` trait — Phase 1 uses `MockProofSystem`, swappable with real ZK backends
+- **Validation:** Accuracy checks (NaN/Inf/range), cross-validator consistency (0.001 tolerance), category enforcement
+
+### ZKML Proof-of-Concept (Python/ezkl)
+
+Real zero-knowledge proofs generated and verified using [ezkl](https://github.com/zkonduit/ezkl) v23 + PyTorch + ONNX. No mocks, no stubs — all proofs are cryptographically valid with `check_mode=SAFE`.
+
+#### Verification of Inference (VoI)
+
+Proves a trained model produced specific outputs for given inputs.
+
+| Metric | Value |
+|--------|-------|
+| Model | Linear(5,8) → ReLU → Linear(8,8) → Sigmoid → Linear(8,2), 138 params |
+| Circuit | logrows=12, 601 rows, 1,202 assignments |
+| Proving key | 44.26 MB |
+| Proving time | 1.56s |
+| Proof size | 41.44 KB |
+| Verification | **True**, tamper tests PASS |
+
+#### Verification of Training (VoT)
+
+Proves a **single SGD training step** was computed correctly — forward pass, MSE loss, backward pass, and weight update — all inside a ZK circuit.
+
+| Metric | Value |
+|--------|-------|
+| Circuit | logrows=15, 10,222 rows, 20,444 assignments |
+| ONNX graph | 98 nodes, 16 op types |
+| Proving key | 156.07 MB |
+| Proving time | 3.06s |
+| Proof size | 61.88 KB |
+| Verification | **True**, tamper tests PASS |
+
+The VoT circuit encodes the entire SGD step as a single ONNX computation graph — manual forward pass, MSE loss gradient, manual backward pass (Sigmoid derivative as `a2*(1-a2)`, ReLU derivative via `Greater+Cast`), and weight update (`W_new = W - 0.01 * grad`). Manual backward matches PyTorch autograd exactly (max diff = 0.00e+00).
+
+### Scaling Reality
+
+Honest assessment of current ZKML limitations:
+
+| Model size | Proving time | pk.key | Feasibility |
+|-----------|-------------|--------|-------------|
+| 138 params | 3.06s | 156 MB | Current PoC |
+| 1,500 params | ~15s | ~500 MB | Practical (CPU) |
+| 5,000 params | ~30s | ~1.2 GB | Upper bound (CPU) |
+| 50,000 params | ~minutes | ~20 GB | Needs GPU (Icicle) |
+| 1M params | hours | ~320 GB | Infeasible today |
+
+**Sweet spot: 1,500-5,000 parameters.** This covers real DeFi use cases — credit scoring (AUC 0.78-0.85), fraud detection (AUC 0.80-0.88), and liquidation risk assessment.
+
+## Project Structure
 
 ```
 viturka/
-├── chain/          # Core blockchain library
+├── chain/                    # Core blockchain library (Rust)
 │   ├── src/
-│   │   ├── types.rs         # Address, Hash, Signature, Keypair, CID
-│   │   ├── transaction.rs   # Tx, DTx, RTx, PTx + ProofPublicInputs
-│   │   ├── block.rs         # Block, BlockHeader, merkle roots
-│   │   ├── consensus.rs     # Top-10 selection, credibility decay, staking
-│   │   ├── state.rs         # ChainState, DDTXO lifecycle, block processing
-│   │   ├── proof.rs         # ProofSystem trait, MockProofSystem, accuracy validation
-│   │   ├── error.rs         # Typed errors (ChainError)
-│   │   └── lib.rs           # Module re-exports
+│   │   ├── types.rs          # Address, Hash, Signature, Keypair, CID
+│   │   ├── transaction.rs    # Tx, DTx, RTx, PTx + ProofPublicInputs
+│   │   ├── block.rs          # Block, BlockHeader, merkle roots
+│   │   ├── consensus.rs      # Top-10 selection, credibility decay, staking
+│   │   ├── state.rs          # ChainState, DDTXO lifecycle, block processing
+│   │   ├── proof.rs          # ProofSystem trait, MockProofSystem
+│   │   ├── error.rs          # Typed errors
+│   │   └── lib.rs
 │   └── tests/
-│       └── integration.rs   # Full lifecycle integration tests
-├── cli/            # Command-line interface
-│   └── src/
-│       └── main.rs          # init + demo commands
+│       └── integration.rs    # Full lifecycle integration tests
+├── cli/                      # Command-line interface
+│   └── src/main.rs           # init + demo commands
+├── poc/                      # ZKML proof-of-concept (Python)
+│   ├── verifiable_training_demo.py   # VoI — inference verification
+│   ├── vot_sgdstep_demo.py           # VoT — training step verification
+│   ├── artifacts/            # VoI proof artifacts
+│   └── vot_artifacts/        # VoT proof artifacts
+├── benchmarks/               # Benchmark reports
+│   ├── verified_cpu_run.md   # VoI benchmark
+│   └── vot_sgdstep_run.md   # VoT benchmark
 └── viturka_whitepaper_v3_zkml.md
 ```
 
-## Core Concepts
+## Building & Running
 
-### Transaction Types
-
-| Type | Purpose | Key Fields |
-|------|---------|------------|
-| **Tx** | VIT token transfer | sender, recipient, amount, fee |
-| **DTx** | Data contribution (commit phase) | data_hash, encrypted_cid, key_hash, 100 VIT deposit |
-| **RTx** | Reveal decryption key | ddtxo_reference, decryption_key (verified against commitment) |
-| **PTx** | ZKML validation proof | validator, proof_bytes, public_inputs, new_weights_cid |
-
-### DDTXO Lifecycle
-
-```
-DTx submitted          RTx reveals key       7+ PTx proofs         Deadline reached
-     │                      │                     │                      │
-  PENDING ──[10 blocks]── REVEALED ──[proofs]── VALIDATING ──[check]── APPROVED
-     │                      │                                           │
-     └── EXPIRED            └── INVALID                              REJECTED
-         (no reveal)            (wrong key → ban)                  (no improvement)
-```
-
-- **Reveal window:** 10 blocks after DTx inclusion
-- **Validation window:** 15 blocks after reveal deadline
-- **Consensus threshold:** 7 of 10 top validators must submit valid proofs
-- **Wrong key reveal:** Contributor permanently banned, fee forfeited
-
-### Proof of Credibility
-
-Validators are ranked by credibility score. The **top 10** are eligible for each validation round.
-
-- **Earning credibility:** Approved data contributions (+10-20), valid proofs (+5), block proposals (+20)
-- **Progressive decay:** Higher credibility decays faster — `rate = 3% × (cred/10000)^1.5` per month
-- **Staking reduction:** Up to 50% decay reduction at 5,000 VIT staked
-- **Cooldown:** 10-block halt period after participating in validation
-- **Tie-breaking:** Address ascending (deterministic)
-
-### Proof Verification Pipeline
-
-The `ProofSystem` trait abstracts ZK proof backends:
-
-```rust
-pub trait ProofSystem: Send + Sync + Debug {
-    fn generate_proof(&self, pk: &ProvingKey, validator: &Address, inputs: &ProofPublicInputs) -> Vec<u8>;
-    fn verify_proof(&self, vk: &VerificationKey, proof: &[u8], validator: &Address, inputs: &ProofPublicInputs) -> bool;
-    fn derive_verification_key(&self, pk: &ProvingKey) -> VerificationKey;
-}
-```
-
-**Phase 1** uses `MockProofSystem` (SHA-256 hash-based, deterministic).
-**Phase 2** will swap in real EZKL/Halo2 ZK-SNARK verification — no changes needed to state, consensus, or DDTXO logic.
-
-Verification enforces:
-- Proof bound to specific validator identity (no replay)
-- Proof bound to exact public inputs (no tampering)
-- Accuracy values validated (NaN/Inf/range rejection)
-- Cross-validator consistency (0.001 tolerance, deterministic ZKML)
-- Category enforcement (validator must support the model category)
-
-## Building
+### Blockchain (Rust)
 
 ```bash
-# Prerequisites: Rust 1.75+ (stable toolchain)
+# Prerequisites: Rust 1.75+ (stable)
 cargo build --workspace
-```
 
-## Running
-
-```bash
-# Initialize a test chain with genesis block
+# Initialize a test chain
 cargo run -p viturka-cli -- init
 
-# Run the full lifecycle demo
+# Run full lifecycle demo
 cargo run -p viturka-cli -- demo
 ```
 
-The `demo` command walks through the complete data contribution lifecycle:
-1. Contributor submits encrypted data (DTx) with 100 VIT deposit
-2. 10 blocks pass (waiting period)
-3. Contributor reveals decryption key (RTx), verified against hash commitment
-4. 8 validators submit ZKML proofs (PTx) with accuracy claims
-5. Chain verifies proofs, checks accuracy consistency and improvement
-6. DDTXO finalized as APPROVED — contributor gets fee refund + reward
-7. Participating validators enter cooldown, model checkpoint updated
+### ZKML PoC (Python)
+
+```bash
+# Prerequisites: Python 3.10+
+pip install torch ezkl onnx onnxruntime psutil
+
+# Run VoI proof
+python poc/verifiable_training_demo.py
+
+# Run VoT proof (SGD step)
+python poc/vot_sgdstep_demo.py
+```
 
 ## Testing
 
 ```bash
-# Run all tests (77 total: 69 unit + 8 integration)
+# All tests (77 total: 69 unit + 8 integration)
 cargo test --workspace
 
-# Run only chain library tests
+# Chain library tests only
 cargo test -p viturka-chain
 
-# Run integration tests
+# Integration tests
 cargo test -p viturka-chain --test integration
 ```
 
-### Test Coverage
-
-| Module | Tests | What's Covered |
-|--------|-------|----------------|
-| `types` | 7 | Hash determinism, address display, keypair signing, merkle roots |
-| `transaction` | 6 | All 4 tx types: serialization, signing, hash stability |
-| `block` | 6 | Genesis creation, merkle roots, block hashing |
-| `consensus` | 18 | Top-10 selection, tie-breaking, cooldown, decay, staking, rewards |
-| `state` | 16 | Full DDTXO lifecycle, transfers, bans, proof rejection, NaN, categories |
-| `proof` | 11 | Mock proof generation/verification, accuracy validation, consistency |
-| `integration` | 8 | End-to-end lifecycle, rejection, expiration, fake proofs |
-
-## Protocol Parameters
-
-| Parameter | Value | Description |
-|-----------|-------|-------------|
-| `TOP_VALIDATORS` | 10 | Max validators per round |
-| `CONSENSUS_THRESHOLD` | 7 | Min valid proofs for approval |
-| `HALT_PERIOD` | 10 blocks | Cooldown after validation |
-| `MIN_CREDIBILITY` | 1,000 | Minimum to be eligible |
-| `REVEAL_WINDOW` | 10 blocks | Time to reveal decryption key |
-| `VALIDATION_WINDOW` | 15 blocks | Time for validators to submit proofs |
-| `DTX_DEPOSIT` | 100 VIT | Required fee deposit |
-| `BASE_BLOCK_REWARD` | 50 VIT | Block proposer reward |
-| `BASE_DATA_REWARD` | 50 VIT | Contributor reward (base) |
-| `BASE_VALIDATION_REWARD` | 10 VIT | Per-validator proof reward |
-| `MIN_ACCURACY_IMPROVEMENT` | 0.1% | Minimum improvement for approval |
+| Module | Tests | Coverage |
+|--------|-------|----------|
+| types | 7 | Hash determinism, address display, keypair signing, merkle roots |
+| transaction | 6 | All 4 tx types: serialization, signing, hash stability |
+| block | 6 | Genesis creation, merkle roots, block hashing |
+| consensus | 18 | Top-10 selection, tie-breaking, cooldown, decay, staking, rewards |
+| state | 16 | Full DDTXO lifecycle, transfers, bans, proof rejection |
+| proof | 11 | Mock proof generation/verification, accuracy validation |
+| integration | 8 | End-to-end lifecycle, rejection, expiration, fake proofs |
 
 ## Roadmap
 
-- [x] **Phase 1 — Minimal Chain** (Complete)
-  - Core types, transactions, blocks, in-memory state
-  - DDTXO state machine with full lifecycle
-  - Proof of Credibility consensus with top-10 selection
-  - Pluggable ProofSystem trait with MockProofSystem
-  - Credibility decay with staking reduction
-  - Accuracy validation and cross-validator consistency
-  - CLI with init and demo commands
-  - 77 tests passing
-
-- [ ] **Phase 2 — ZKML Integration**
-  - EZKL/Halo2 ZK-SNARK proof verification
-  - ONNX model compilation to ZK circuits
-  - Real proving key / verification key generation
-  - Benchmark: proof generation and verification times
-
-- [ ] **Phase 3 — Networking & Persistence**
-  - libp2p peer-to-peer networking
-  - RocksDB persistent state storage
-  - Block propagation and transaction gossip
-  - Multi-node consensus
-
-- [ ] **Phase 4 — Full Protocol**
-  - Validator registration and staking
-  - Slashing for misbehavior
-  - Dynamic category management
-  - Cross-category model federation
-
-- [ ] **Phase 5 — Production**
-  - Testnet launch
-  - Security audit
-  - Performance optimization
-  - GPU-accelerated proving (Icicle)
+- [x] **Phase 1 — Minimal Chain** — Core types, consensus, DDTXO lifecycle, 77 tests
+- [x] **ZKML PoC** — Real ZK proofs for inference (VoI) and training (VoT) with ezkl
+- [ ] **Phase 2 — ZKML Integration** — Wire ezkl verification into Rust chain
+- [ ] **Phase 3 — Networking & Persistence** — libp2p, RocksDB, block propagation
+- [ ] **Phase 4 — Full Protocol** — Validator registration, slashing, federation
+- [ ] **Phase 5 — Production** — Testnet, security audit, GPU proving (Icicle)
 
 ## License
 
-See whitepaper for full protocol specification.
+See [whitepaper](viturka_whitepaper_v3_zkml.md) for full protocol specification.
